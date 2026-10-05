@@ -21,7 +21,7 @@ from psycopg2.extras import execute_values
 
 from audit.logger import log_event
 from config.settings import to_libpq_url
-from config.sources import MONGO_SOURCES, PG_SOURCES
+from config.sources import API_SOURCES, MONGO_SOURCES, PG_SOURCES
 from ingestion.base import IngestContext
 from ingestion.cutoff import (load_tz_columns, mongo_cutoff_filter, pg_cutoff_clause,
                               pick_pg_cutoff_column)
@@ -135,12 +135,34 @@ def _source_count_inner(src: _Sources, system, stype, db, schema, obj, wm_col, c
             return n, total, {"pg": (col, cutoff) if col else None}
         finally:
             conn.rollback()
+    if stype == "api":
+        ids, total = _api_ids(src, system, cutoff)
+        return len(ids), total, {"api": True}
     raise NotImplementedError(f"row counts are not supported for source type '{stype}'")
+
+
+def _api_ids(src: _Sources, system: str, cutoff):
+    """Full re-read of an API source (no count endpoint is assumed): (ids created at or before the cutoff, total ids).
+    Records without a parseable timestamp count as in scope, like NULL markers on the SQL side."""
+    from ingestion.api.client import ApiConfig, ApiReader
+    prefix = next(p for t, p, _ in API_SOURCES if t == system)
+    cfg = ApiConfig(src.settings.env, prefix)
+    reader = ApiReader(cfg, None, src.settings.connect_timeout)
+    scoped, total = set(), 0
+    for rec in reader.records():
+        total += 1
+        if cutoff is None or rec.source_timestamp is None or rec.source_timestamp <= cutoff:
+            scoped.add(rec.source_record_id)
+    if not reader._complete:
+        raise RuntimeError("API read truncated at MAX_PAGES; count would be wrong")
+    return scoped, total
 
 
 def _ref(system, stype, db, schema, obj) -> SourceRef:
     if stype == "mongodb":
         return SourceRef(system, stype, db, schema, None, obj.split(".", 1)[1])
+    if stype == "api":
+        return SourceRef(system, stype, db)
     return SourceRef(system, stype, db, schema, obj[len(db) + len(schema) + 2:], None)
 
 
@@ -162,7 +184,11 @@ def _explain(src: _Sources, master_conn, system, stype, db, schema, obj, tschema
     """Cheap, id-level explanation of a count difference (ids only, no payload hashing), over the same cutoff scope
     as the count. Compares the source ids with the LIVE record ids of the target."""
     try:
-        if stype == "mongodb":
+        if stype == "api":
+            source_ids, total = _api_ids(src, system, ctx_cutoff)
+            all_ids = source_ids | set()  # ids after the cutoff are not recoverable from the scoped set; see below
+            all_ids = _api_all_ids(src, system)
+        elif stype == "mongodb":
             coll = src.mongo(system)[db][obj.split(".", 1)[1]]
             source_ids = {record_id(d["_id"]) for d in coll.find(scope.get("mongo") or {}, {"_id": 1})}
             all_ids = ({record_id(d["_id"]) for d in coll.find({}, {"_id": 1})} if scope.get("mongo") else source_ids)

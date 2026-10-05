@@ -150,7 +150,7 @@ def ingest_object(ctx: IngestContext, task: str, ref: SourceRef, key: str, sourc
             ctx.audit.set_watermark(key, wm_to)
         err = None
         if reader.failed:
-            err = f"{reader.failed} record(s) could not be serialised"
+            err = getattr(reader, "failure_note", None) or f"{reader.failed} record(s) could not be serialised"
         if note:
             err = f"{err}; {note}" if err else note
         status = SUCCESS if not err else PARTIAL

@@ -60,6 +60,8 @@ def ref_from_registry(system: str, stype: str, db: str | None, schema: str | Non
     """SourceRef for an audit.source_registry row."""
     if stype == "mongodb":
         return SourceRef(system, stype, db, schema, None, obj.split(".", 1)[1])
+    if stype == "api":
+        return SourceRef(system, stype, db)             # source_database = base URL; no schema/table
     return SourceRef(system, stype, db, schema, obj[len(db) + len(schema) + 2:], None)
 
 
