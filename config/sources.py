@@ -79,6 +79,21 @@ PG_SOURCES = (
     ),
 )
 
+CHATBOT_SOURCE = PgSource(
+    task="postgresql_chatbot", source_system="postgresql_chatbot", short="chatbot", discover_application=False,
+    telemetry_tables=tuple(
+        PgTelemetryTable("crl", "public", t, f"chatbot_{t}", watermark_column=wm, timestamp_column=ts, id_columns=(pk,))
+        for t, pk, wm, ts in (
+            ("conversations", "id", "updated_at", "created_at"),        # mutable (title/updated_at)
+            ("messages", "id", None, "created_at"),                     # full scan: small, may be edited
+            ("feedback", "id", None, "created_at"),                     # full scan: small, votes may change
+            ("agentic_interactions", "message_id", "created_at", "created_at"),   # append-only log
+            ("ai_telemetry", "response_id", "created_at", "query_submitted_at"),  # append-only log
+            ("response_cache", "cache_key", "updated_at", "created_at"),          # mutable (confirmations, status)
+        )))
+
+PG_SOURCES = PG_SOURCES + (CHATBOT_SOURCE,)
+
 # API telemetry -> (task name, env prefix, telemetry table). Disabled until <PREFIX>_BASE_URL is set.
 API_SOURCES = (
     ("api_chatbot", "API_CHATBOT", "chatbot_events"),

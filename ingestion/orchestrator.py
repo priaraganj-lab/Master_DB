@@ -9,7 +9,7 @@ from config.settings import Settings
 from ingestion.api import chatbot, interface
 from ingestion.base import FAILED, PARTIAL, SKIPPED, SUCCESS, IngestContext, SourceTask, TaskResult
 from ingestion.mongodb import elevate, network
-from ingestion.postgresql import network_telemetry, registry
+from ingestion.postgresql import chatbot as pg_chatbot, network_telemetry, registry
 from master_db.repository import MasterRepository
 from master_db.schema_manager import SchemaManager
 from utils.security import scrub
@@ -45,6 +45,7 @@ class PipelineSummary:
 def build_tasks(settings: Settings) -> list[SourceTask]:
     return [network.build_task(settings), elevate.build_task(settings),
             registry.build_task(settings), network_telemetry.build_task(settings),
+            pg_chatbot.build_task(settings),
             chatbot.build_task(settings), interface.build_task(settings)]
 
 

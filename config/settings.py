@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from utils.security import register_secrets
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE_ENV_KEYS = ("mongodb_network_data", "mongodb_elevate_atlas", "postgresql_supabase", "postgresql_network_telemetry")
+SOURCE_ENV_KEYS = ("mongodb_network_data", "mongodb_elevate_atlas", "postgresql_supabase", "postgresql_network_telemetry",
+                   "postgresql_chatbot")  # last one is optional: its task is skipped when unset
 
 
 def to_libpq_url(uri: str, dbname: str | None = None) -> str:
