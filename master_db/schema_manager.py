@@ -187,13 +187,25 @@ AUDIT_DDL = [
                target_total_rows AS "Target Total Rows (all versions)", deleted_records AS "Deleted Records",
                superseded_versions AS "Superseded Versions"
         FROM audit.reconciliation ORDER BY source_table""",
+    """CREATE TABLE IF NOT EXISTS audit.pipeline_audit (
+        source_table_name       text PRIMARY KEY,
+        source_row_total_count  bigint,
+        target_table_name       text NOT NULL,
+        target_row_total_count  bigint,
+        target_current_row_count bigint,
+        pipeline_last_run       timestamptz NOT NULL
+    )""",
+    "COMMENT ON TABLE audit.pipeline_audit IS 'One row per source->target mapping, refreshed on every pipeline run. "
+    "source_row_total_count = source rows as of the run start; target_row_total_count = all target rows incl. history; "
+    "target_current_row_count = target rows where is_current = true; pipeline_last_run = start of the last run. "
+    "Counts are NULL when the source or target could not be counted.'",
     "CREATE INDEX IF NOT EXISTS ix_audit_batches_run ON audit.ingestion_batches (pipeline_run_id)",
     "CREATE INDEX IF NOT EXISTS ix_audit_jobs_run ON audit.job_execution (pipeline_run_id)",
     "CREATE INDEX IF NOT EXISTS ix_audit_errors_run ON audit.error_logs (pipeline_run_id)",
 ]
 
 REQUIRED_AUDIT_TABLES = ("source_registry", "pipeline_runs", "job_execution", "ingestion_batches", "error_logs",
-                         "retired_records", "reconciliation")
+                         "retired_records", "reconciliation", "pipeline_audit")
 
 
 class SchemaManager:

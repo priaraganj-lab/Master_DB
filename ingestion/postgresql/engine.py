@@ -91,7 +91,8 @@ class PgIngestTask(SourceTask):
 
     def _connect(self, dbname: str):
         conn = psycopg2.connect(to_libpq_url(self.settings.source_uri(self.source_system), dbname),
-                                connect_timeout=self.settings.connect_timeout, application_name="crl_pipeline")
+                                connect_timeout=self.settings.connect_timeout, application_name="crl_pipeline",
+                                options=f"-c timezone={self.cfg.session_timezone}" if self.cfg.session_timezone else None)
         conn.set_session(readonly=True)
         return conn
 

@@ -172,10 +172,12 @@ def _target_stats(master_conn, tschema, ttable, ref: SourceRef) -> dict:
         with master_conn.cursor() as cur:
             cur.execute(sql.SQL("""SELECT count(*) FILTER (WHERE t.is_current AND t.change_type <> 'DELETED'),
                     count(*), count(*) FILTER (WHERE t.change_type = 'DELETED'), count(*) FILTER (WHERE NOT t.is_current),
-                    count(*) FILTER (WHERE t.record_version > 1 AND t.previous_master_record_id IS NULL)
+                    count(*) FILTER (WHERE t.record_version > 1 AND t.previous_master_record_id IS NULL),
+                    count(*) FILTER (WHERE t.is_current)
                     FROM {} t WHERE """).format(sql.Identifier(tschema, ttable)) + sql.SQL(_OBJ_WHERE), _obj_params(ref))
-            live, total, deleted, superseded, broken = cur.fetchone()
-            return {"live": live, "total": total, "deleted": deleted, "superseded": superseded, "broken": broken}
+            live, total, deleted, superseded, broken, current = cur.fetchone()
+            return {"live": live, "total": total, "deleted": deleted, "superseded": superseded, "broken": broken,
+                    "current": current}
     finally:
         master_conn.rollback()
 
@@ -246,7 +248,7 @@ def reconcile_all(ctx: IngestContext, master_conn, ran_at: datetime) -> dict:
     settings, audit = ctx.settings, ctx.audit
     ist_text = _ist_text(ran_at)
     src = _Sources(settings)
-    rows, counts = [], {"PASS": 0, "FAIL": 0, "ERROR": 0}
+    rows, audit_rows, counts = [], [], {"PASS": 0, "FAIL": 0, "ERROR": 0}
     try:
         mappings = audit._exec("""SELECT source_key, source_system, source_type, source_database, source_schema,
             source_object, target_schema, target_table, watermark_column FROM audit.source_registry
@@ -256,7 +258,7 @@ def reconcile_all(ctx: IngestContext, master_conn, ran_at: datetime) -> dict:
             s_cnt = t_cnt = None
             total = 0
             scope: dict = {}
-            hist = {"total": None, "deleted": None, "superseded": None, "broken": 0}
+            hist = {"total": None, "deleted": None, "superseded": None, "broken": 0, "current": None}
             errors = []
             try:
                 s_cnt, total, scope = _source_count(src, system, stype, db, schema, obj, wm_col, ctx.cutoff)
@@ -293,6 +295,7 @@ def reconcile_all(ctx: IngestContext, master_conn, ran_at: datetime) -> dict:
             counts[status] += 1
             rows.append((f"{system}.{obj}", f"{tschema}.{ttable}", s_cnt, t_cnt, diff, status, detail, ist_text,
                          hist["total"], hist["deleted"], hist["superseded"]))
+            audit_rows.append((f"{system}.{obj}", s_cnt, f"{tschema}.{ttable}", hist["total"], hist["current"], ran_at))
     finally:
         src.close()
     execute_values(audit.conn.cursor(), """INSERT INTO audit.reconciliation (source_table, target_table,
@@ -304,6 +307,12 @@ def reconcile_all(ctx: IngestContext, master_conn, ran_at: datetime) -> dict:
         time_pipeline_last_ran_ist=EXCLUDED.time_pipeline_last_ran_ist, target_total_rows=EXCLUDED.target_total_rows,
         deleted_records=EXCLUDED.deleted_records, superseded_versions=EXCLUDED.superseded_versions""",
                    rows, page_size=500)
+    execute_values(audit.conn.cursor(), """INSERT INTO audit.pipeline_audit (source_table_name, source_row_total_count,
+        target_table_name, target_row_total_count, target_current_row_count, pipeline_last_run) VALUES %s
+        ON CONFLICT (source_table_name) DO UPDATE SET source_row_total_count=EXCLUDED.source_row_total_count,
+        target_table_name=EXCLUDED.target_table_name, target_row_total_count=EXCLUDED.target_row_total_count,
+        target_current_row_count=EXCLUDED.target_current_row_count, pipeline_last_run=EXCLUDED.pipeline_last_run""",
+                   audit_rows, page_size=500)
     log_event(ctx.logger, logging.INFO if not counts["ERROR"] else logging.ERROR, "reconciliation refreshed",
               pipeline_run_id=ctx.run_id, status="DONE", mappings=len(rows), **counts, last_ran_ist=ist_text)
     return {"mappings": len(rows), **counts, "last_ran_ist": ist_text}

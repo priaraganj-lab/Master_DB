@@ -3,6 +3,8 @@ declares which sources exist, which env var holds each connection, and explicit 
 Everything here was verified against the live systems (see README, 'Discovery')."""
 from dataclasses import dataclass, field
 
+from utils.timeutil import PG_TIMEZONE
+
 
 @dataclass(frozen=True)
 class MongoSource:
@@ -43,6 +45,7 @@ class PgSource:
     schemas: tuple = ("public",)          # only user schemas; Supabase-managed schemas are platform internals
     discover_application: bool = True
     telemetry_tables: tuple = ()
+    session_timezone: str | None = None   # source session TimeZone: timestamptz values inside the stored payload render in it
 
 
 MONGO_SOURCES = (
@@ -81,6 +84,7 @@ PG_SOURCES = (
 
 CHATBOT_SOURCE = PgSource(
     task="postgresql_chatbot", source_system="postgresql_chatbot", short="chatbot", discover_application=False,
+    session_timezone=PG_TIMEZONE,
     telemetry_tables=tuple(
         PgTelemetryTable("crl", "public", t, f"chatbot_{t}", watermark_column=wm, timestamp_column=ts, id_columns=(pk,))
         for t, pk, wm, ts in (

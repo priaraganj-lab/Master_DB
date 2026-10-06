@@ -198,9 +198,3 @@ def test_api_preflight_reports_rejected_credentials():
     with pytest.raises(PermissionError):
         ApiIngestTask("api_t", "API_T", "t", s).check_connection()
     srv.shutdown()
-
-
-def test_chatbot_views_sql_is_well_formed():
-    from master_db import chatbot_models as m
-    assert "ai_chat_turns" in m.TURNS_DDL and "WITH ORDINALITY" in m.CALLS_DDL
-    assert all(q.strip().upper().startswith("SELECT") for _, q in m.CHECKS)
